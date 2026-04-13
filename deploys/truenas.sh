@@ -15,7 +15,7 @@ require_vars TRUENAS_URL TRUENAS_API_KEY TRUENAS_CERT_PREFIX CERT KEY
 AUTH_HEADER="Authorization: Bearer $TRUENAS_API_KEY"
 CONTENT_TYPE="Content-Type: application/json"
 
-FILE_DATE="$(date +%F_%R)"
+FILE_DATE="$(date +%F-%H-%M)"
 CERT_NAME="${TRUENAS_CERT_PREFIX}_${FILE_DATE}"
 
 # Read cert/key contents with escaped newlines for JSON
@@ -36,7 +36,8 @@ IMPORT_RESPONSE=$(http_post "$TRUENAS_URL/api/v2.0/certificate" \
     \"privatekey\": \"$KEY_DATA\"
   }")
 
-JOB_ID=$(echo "$IMPORT_RESPONSE" | jq -r '.id // empty')
+JOB_ID=$(echo "$IMPORT_RESPONSE" | jq -r 'if type=="number" or type=="string" then . else .id // empty end')
+# JOB_ID=$(echo "$IMPORT_RESPONSE" | jq -r '.id // empty')
 
 if [[ -z "$JOB_ID" ]]; then
   log ERROR "Failed to get job ID from import response"

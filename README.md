@@ -45,7 +45,7 @@ Deploys wildcard TLS certificates from [acme.sh](https://github.com/acmesh-offic
 ```
 
 ### Running as acme.sh reloadcmd
-
+same command is used as the most reliable option to update the reloadcmd script path
 ```bash
 acme.sh --install-cert -d "*.internal.domain.net" \
   --cert-file      "$HOME/certs/internal.domain.net/cert.pem" \
@@ -150,6 +150,15 @@ acme.sh --issue -d "*.newdomain.net" --dns dns_provider
 # 2. Update CERT_DIR in .env to point to new cert directory
 # 3. Update service-specific configs (domain names, hostnames)
 # 4. Install cert with reloadcmd (see Usage above)
+```
+
+## Deploy to Remote
+
+Copy project files to a remote machine (excludes `.git`, `tests`, `.claude`):
+
+```bash
+scp -r $(find . -maxdepth 1 ! -name '.git' ! -name 'tests' ! -name '.claude' ! -name '.' -printf '%p ') \
+  user@remote-host:/home/admin/projects/acme-homelab-deploy/
 ```
 
 ## Testing
