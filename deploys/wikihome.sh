@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Deploy certificate to Wikihome (Node-RED) via SSH/SCP.
 
 SCRIPT_NAME="wikihome"

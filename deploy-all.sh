@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Orchestrator: runs all (or selected) deploy scripts.
 #
 # Usage:

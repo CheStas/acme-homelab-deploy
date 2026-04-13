@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Deploy certificate to Nginx Proxy Manager via REST API.
 # Creates certificate, uploads files, updates proxy hosts, cleans up old certs.
 

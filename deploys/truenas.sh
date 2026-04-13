@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Deploy certificate to TrueNAS via REST API.
 # Imports certificate, polls async job, binds to UI.
 

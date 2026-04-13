@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Shared library: logging, env loading, error handling
 # Source this file from every deploy script.
 

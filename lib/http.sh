@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # HTTP/SCP/SSH wrappers with logging and timeouts.
 # Requires common.sh to be sourced first.
 

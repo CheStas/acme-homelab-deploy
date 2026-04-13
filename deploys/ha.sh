@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Deploy certificate to Home Assistant via SSH/SCP.
 
 SCRIPT_NAME="ha"
