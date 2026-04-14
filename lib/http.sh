@@ -2,11 +2,25 @@
 # HTTP/SCP/SSH wrappers with logging and timeouts.
 # Requires common.sh to be sourced first.
 
-# ── HTTP request ────────────────────────────────────────────────────
-# Usage: http_request METHOD URL [-H "Header: val"...] [--data "body"]
-# Sets global HTTP_STATUS. Returns response body on stdout.
+# ── HTTP response parsing ──────────────────────────────────────────
+# http_request outputs: first line = HTTP status code, rest = body.
+# Use these helpers to extract each part.
 
-HTTP_STATUS=""
+parse_http_status() {
+  local response="$1"
+  printf '%s\n' "$response" | head -n1
+}
+
+parse_http_body() {
+  local response="$1"
+  printf '%s\n' "$response" | tail -n +2
+}
+
+# ── HTTP request ────────────────────────────────────────────────────
+# Usage: RESPONSE=$(http_request METHOD URL [-H "Header: val"...] [--data "body"])
+#        STATUS=$(parse_http_status "$RESPONSE")
+#        BODY=$(parse_http_body "$RESPONSE")
+# Returns status code on first line, response body on subsequent lines.
 
 http_request() {
   local method="$1"
@@ -53,14 +67,16 @@ http_request() {
 
   cmd+=("${extra_flags[@]}" "$url")
 
+  local http_code
   local curl_exit=0
-  HTTP_STATUS=$("${cmd[@]}") || curl_exit=$?
+  http_code=$("${cmd[@]}") || curl_exit=$?
 
   response_body="$(cat "$tmp_body")"
   rm -f "$tmp_body"
 
   if [[ $curl_exit -ne 0 ]]; then
     log ERROR "HTTP $method $url failed (curl exit $curl_exit)"
+    echo "000"
     echo "$response_body"
     return $curl_exit
   fi
@@ -70,8 +86,9 @@ http_request() {
   if [[ ${#log_body} -gt 500 ]]; then
     log_body="${log_body:0:500}...(truncated)"
   fi
-  log INFO "HTTP $HTTP_STATUS response: $log_body"
+  log INFO "HTTP $http_code response: $log_body"
 
+  echo "$http_code"
   echo "$response_body"
 }
 

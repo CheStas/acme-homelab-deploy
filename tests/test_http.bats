@@ -77,6 +77,48 @@ SCRIPT
   assert_output --partial 'Request body: {"name":"test"}'
 }
 
+@test "http_request status is available via parse_http_status in subshell" {
+  cat > "$MOCK_DIR/curl" <<'SCRIPT'
+#!/usr/bin/env bash
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == "-o" ]]; then
+    echo '{"ok":true}' > "$2"
+    shift 2
+  else
+    shift
+  fi
+done
+echo "200"
+SCRIPT
+  chmod +x "$MOCK_DIR/curl"
+
+  # This is the pattern that was broken with the global HTTP_STATUS approach:
+  # the subshell loses the global, but parse_http_status extracts it from stdout.
+  RESPONSE=$(http_request GET "http://test.local/api")
+  STATUS=$(parse_http_status "$RESPONSE")
+  BODY=$(parse_http_body "$RESPONSE")
+
+  assert_equal "$STATUS" "200"
+  assert_equal "$BODY" '{"ok":true}'
+}
+
+@test "parse_http_status extracts first line" {
+  RESPONSE=$'201\n{"id":42}'
+  assert_equal "$(parse_http_status "$RESPONSE")" "201"
+}
+
+@test "parse_http_body extracts everything after first line" {
+  RESPONSE=$'200\n{"line":"one"}\n{"line":"two"}'
+  BODY=$(parse_http_body "$RESPONSE")
+  assert_equal "$BODY" $'{"line":"one"}\n{"line":"two"}'
+}
+
+@test "parse_http_body returns empty when no body" {
+  RESPONSE="204"
+  BODY=$(parse_http_body "$RESPONSE")
+  assert_equal "$BODY" ""
+}
+
 @test "http_request returns failure on curl error" {
   cat > "$MOCK_DIR/curl" <<'SCRIPT'
 #!/usr/bin/env bash

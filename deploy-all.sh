@@ -121,7 +121,9 @@ FAILURES=()
 for deploy in "${DEPLOYS[@]}"; do
   log INFO "--- Starting: $deploy ---"
 
-  if "$PROJECT_ROOT/deploys/${deploy}.sh" 2>&1 | tee -a "$LOG_FILE" >&2; then
+  # pipefail ensures the pipeline returns the deploy script's exit code,
+  # not tee's (which always succeeds).
+  if bash -o pipefail -c '"$1" 2>&1 | tee -a "$2" >&2' _ "$PROJECT_ROOT/deploys/${deploy}.sh" "$LOG_FILE"; then
     log INFO "--- $deploy: SUCCESS ---"
     SUCCESSES+=("$deploy")
   else

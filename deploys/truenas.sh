@@ -25,7 +25,7 @@ KEY_DATA=$(sed ':a;N;$!ba;s/\n/\\n/g' "$KEY")
 # ── Import certificate ──────────────────────────────────────────────
 log INFO "Importing certificate: $CERT_NAME"
 
-IMPORT_RESPONSE=$(http_post "$TRUENAS_URL/api/v2.0/certificate" \
+RAW=$(http_post "$TRUENAS_URL/api/v2.0/certificate" \
   -H "$AUTH_HEADER" \
   -H "$CONTENT_TYPE" \
   -k \
@@ -36,8 +36,8 @@ IMPORT_RESPONSE=$(http_post "$TRUENAS_URL/api/v2.0/certificate" \
     \"privatekey\": \"$KEY_DATA\"
   }")
 
+IMPORT_RESPONSE=$(parse_http_body "$RAW")
 JOB_ID=$(echo "$IMPORT_RESPONSE" | jq -r 'if type=="number" or type=="string" then . else .id // empty end')
-# JOB_ID=$(echo "$IMPORT_RESPONSE" | jq -r '.id // empty')
 
 if [[ -z "$JOB_ID" ]]; then
   log ERROR "Failed to get job ID from import response"
@@ -51,9 +51,10 @@ MAX_POLL=30
 POLL_INTERVAL=2
 
 for ((i = 1; i <= MAX_POLL; i++)); do
-  JOB_RESPONSE=$(http_get "$TRUENAS_URL/api/v2.0/core/get_jobs?id=$JOB_ID" \
+  RAW=$(http_get "$TRUENAS_URL/api/v2.0/core/get_jobs?id=$JOB_ID" \
     -H "$AUTH_HEADER" -k)
 
+  JOB_RESPONSE=$(parse_http_body "$RAW")
   JOB_STATE=$(echo "$JOB_RESPONSE" | jq -r '.[0].state // "UNKNOWN"')
 
   case "$JOB_STATE" in
@@ -85,9 +86,10 @@ done
 # ── Look up certificate ID ──────────────────────────────────────────
 log INFO "Looking up certificate ID for $CERT_NAME"
 
-CERTS_RESPONSE=$(http_get "$TRUENAS_URL/api/v2.0/certificate" \
+RAW=$(http_get "$TRUENAS_URL/api/v2.0/certificate" \
   -H "$AUTH_HEADER" -k)
 
+CERTS_RESPONSE=$(parse_http_body "$RAW")
 CERT_ID=$(echo "$CERTS_RESPONSE" | jq -r \
   ".[] | select(.name==\"$CERT_NAME\") | .id" | tail -n1)
 
@@ -99,14 +101,16 @@ fi
 # ── Bind certificate to UI ──────────────────────────────────────────
 log INFO "Binding certificate ID $CERT_ID to TrueNAS UI"
 
-http_put "$TRUENAS_URL/api/v2.0/system/general" \
+RAW=$(http_put "$TRUENAS_URL/api/v2.0/system/general" \
   -H "$AUTH_HEADER" \
   -H "$CONTENT_TYPE" \
   -k \
-  --data "{\"ui_certificate\": $CERT_ID}"
+  --data "{\"ui_certificate\": $CERT_ID}")
 
-if [[ "$HTTP_STATUS" != "200" ]]; then
-  log ERROR "Failed to bind certificate (HTTP $HTTP_STATUS)"
+BIND_STATUS=$(parse_http_status "$RAW")
+
+if [[ "$BIND_STATUS" != "200" ]]; then
+  log ERROR "Failed to bind certificate (HTTP $BIND_STATUS)"
   exit 1
 fi
 

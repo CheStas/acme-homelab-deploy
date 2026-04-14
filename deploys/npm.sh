@@ -23,13 +23,14 @@ fi
 # ── Authenticate ────────────────────────────────────────────────────
 log INFO "Authenticating with NPM"
 
-AUTH_RESPONSE=$(http_post "$NPM_URL/api/tokens" \
+RAW=$(http_post "$NPM_URL/api/tokens" \
   -H "Content-Type: application/json" \
   --data "{
     \"identity\": \"$NPM_EMAIL\",
     \"secret\": \"$NPM_PASSWORD\"
   }")
 
+AUTH_RESPONSE=$(parse_http_body "$RAW")
 TOKEN=$(echo "$AUTH_RESPONSE" | jq -r '.token')
 
 if [[ "$TOKEN" == "null" || -z "$TOKEN" ]]; then
@@ -43,7 +44,7 @@ log INFO "Authenticated successfully"
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 log INFO "Creating certificate entry: uploaded-by-acme.sh-$TIMESTAMP"
 
-CREATE_RESPONSE=$(http_post "$NPM_URL/api/nginx/certificates" \
+RAW=$(http_post "$NPM_URL/api/nginx/certificates" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   --data "{
@@ -51,6 +52,7 @@ CREATE_RESPONSE=$(http_post "$NPM_URL/api/nginx/certificates" \
     \"nice_name\": \"uploaded-by-acme.sh-$TIMESTAMP\"
   }")
 
+CREATE_RESPONSE=$(parse_http_body "$RAW")
 NEW_CERT_ID=$(echo "$CREATE_RESPONSE" | jq -r '.id')
 
 if [[ -z "$NEW_CERT_ID" || "$NEW_CERT_ID" == "null" ]]; then
@@ -63,13 +65,15 @@ log INFO "Created certificate ID: $NEW_CERT_ID"
 # ── Upload certificate files ───────────────────────────────────────
 log INFO "Uploading certificate files"
 
-UPLOAD_RESPONSE=$(http_upload "$NPM_URL/api/nginx/certificates/$NEW_CERT_ID/upload" \
+RAW=$(http_upload "$NPM_URL/api/nginx/certificates/$NEW_CERT_ID/upload" \
   -H "Authorization: Bearer $TOKEN" \
   -F "certificate=@$CERT" \
   -F "certificate_key=@$KEY")
 
-if [[ "$HTTP_STATUS" != "200" ]]; then
-  log ERROR "Certificate upload failed (HTTP $HTTP_STATUS)"
+UPLOAD_STATUS=$(parse_http_status "$RAW")
+
+if [[ "$UPLOAD_STATUS" != "200" ]]; then
+  log ERROR "Certificate upload failed (HTTP $UPLOAD_STATUS)"
   exit 1
 fi
 
@@ -78,9 +82,11 @@ log INFO "Certificate files uploaded"
 # ── Fetch proxy hosts ──────────────────────────────────────────────
 log INFO "Fetching proxy hosts"
 
-PROXIES=$(http_get "$NPM_URL/api/nginx/proxy-hosts" \
+RAW=$(http_get "$NPM_URL/api/nginx/proxy-hosts" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json")
+
+PROXIES=$(parse_http_body "$RAW")
 
 # ── Update matching proxy hosts ─────────────────────────────────────
 for DOMAIN in "${DOMAINS[@]}"; do
@@ -110,13 +116,15 @@ for DOMAIN in "${DOMAINS[@]}"; do
 
   log INFO "Updating proxy $PROXY_ID with certificate $NEW_CERT_ID"
 
-  UPDATE_RESPONSE=$(http_put "$NPM_URL/api/nginx/proxy-hosts/$PROXY_ID" \
+  RAW=$(http_put "$NPM_URL/api/nginx/proxy-hosts/$PROXY_ID" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     --data "$UPDATED_PROXY")
 
-  if [[ "$HTTP_STATUS" != "200" ]]; then
-    log ERROR "Failed to update proxy $PROXY_ID (HTTP $HTTP_STATUS)"
+  UPDATE_STATUS=$(parse_http_status "$RAW")
+
+  if [[ "$UPDATE_STATUS" != "200" ]]; then
+    log ERROR "Failed to update proxy $PROXY_ID (HTTP $UPDATE_STATUS)"
     exit 1
   fi
 
@@ -126,9 +134,11 @@ for DOMAIN in "${DOMAINS[@]}"; do
   if [[ "$OLD_CERT_ID" != "null" && -n "$OLD_CERT_ID" ]]; then
     log INFO "Checking if old certificate $OLD_CERT_ID is still in use"
 
-    CURRENT_PROXIES=$(http_get "$NPM_URL/api/nginx/proxy-hosts" \
+    RAW=$(http_get "$NPM_URL/api/nginx/proxy-hosts" \
       -H "Authorization: Bearer $TOKEN" \
       -H "Content-Type: application/json")
+
+    CURRENT_PROXIES=$(parse_http_body "$RAW")
 
     STILL_USED=$(echo "$CURRENT_PROXIES" | \
       jq "[.[] | select(.certificate_id == $OLD_CERT_ID)] | length")
@@ -137,7 +147,7 @@ for DOMAIN in "${DOMAINS[@]}"; do
       log INFO "Deleting unused certificate $OLD_CERT_ID"
       http_delete "$NPM_URL/api/nginx/certificates/$OLD_CERT_ID" \
         -H "Authorization: Bearer $TOKEN" \
-        -H "Content-Type: application/json" || true
+        -H "Content-Type: application/json" > /dev/null || true
     else
       log INFO "Certificate $OLD_CERT_ID still used by $STILL_USED proxy host(s)"
     fi
