@@ -129,6 +129,8 @@ Each `deploy-all.sh` run is separated by `====` lines with STARTED/FINISHED mark
 | `WEBSOCAT_VERSION` | websocat release to download/cache: `latest` (default) or a pinned tag like `v1.14.1` |
 | `WEBSOCAT_FORCE_DOWNLOAD` | Set to `1` to re-download websocat even if a cached copy exists |
 | `JSONRPC_READ_TIMEOUT` | Per JSON-RPC reply read timeout in seconds (default `30`) |
+| `UI_RESTART_RETRIES` | Reconnect attempts to verify the UI cert after binding (default `10`) |
+| `UI_RESTART_INTERVAL` | Seconds between UI-cert verify reconnect attempts (default `3`) |
 | `NPM_URL` | Nginx Proxy Manager API URL |
 | `NPM_EMAIL` | NPM admin email |
 | `NPM_DOMAINS` | Space-separated list of domains to update |

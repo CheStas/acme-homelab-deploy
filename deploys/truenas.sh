@@ -74,7 +74,10 @@ for ((i = 1; i <= MAX_POLL; i++)); do
   case "$JOB_STATE" in
     SUCCESS)
       log INFO "Import job $JOB_ID completed successfully"
-      CERT_ID="$(printf '%s' "$JOB_RESULT" | jq -r '.[0].result // empty')"
+      # For an imported cert the job result is the full certificate object;
+      # for other create types it may be the bare id. Handle both.
+      CERT_ID="$(printf '%s' "$JOB_RESULT" | jq -r \
+        '.[0].result | (if type=="object" then .id else . end) // empty')"
       break
       ;;
     FAILED)
@@ -112,9 +115,43 @@ if [[ -z "$CERT_ID" ]]; then
 fi
 
 # ── Bind certificate to UI ──────────────────────────────────────────
+# system.general.update changing ui_certificate restarts the web UI, which
+# drops the WebSocket without sending a reply. So we tolerate no-reply here
+# (only a real JSON-RPC error is a failure) and verify the bind afterwards by
+# reconnecting and reading system.general.config.
 log INFO "Binding certificate ID $CERT_ID to TrueNAS UI"
 
 BIND_PARAMS="$(jq -nc --argjson id "$CERT_ID" '[{ui_certificate:$id}]')"
-jsonrpc_call "system.general.update" "$BIND_PARAMS" >/dev/null
+JSONRPC_READ_TIMEOUT=8 jsonrpc_call "system.general.update" "$BIND_PARAMS" 1 >/dev/null || {
+  log ERROR "system.general.update rejected certificate ID $CERT_ID"
+  exit 1
+}
+jsonrpc_close
 
-log INFO "Certificate $CERT_NAME (ID $CERT_ID) bound to TrueNAS UI"
+# Reconnect (the UI is restarting) and confirm the active UI certificate.
+# A middleware restart can take a while, so retry generously.
+UI_RESTART_RETRIES="${UI_RESTART_RETRIES:-10}"
+UI_RESTART_INTERVAL="${UI_RESTART_INTERVAL:-3}"
+_UI_VERIFIED=0
+for ((v = 1; v <= UI_RESTART_RETRIES; v++)); do
+  jsonrpc_close 2>/dev/null || true
+  if jsonrpc_open "$TRUENAS_WS_URL" "$TRUENAS_API_KEY" 2>/dev/null; then
+    CFG="$(jsonrpc_call "system.general.config" "[]")" && {
+      UI_CERT="$(printf '%s' "$CFG" | jq -r '.ui_certificate // empty')"
+      if [[ "$UI_CERT" == "$CERT_ID" ]]; then
+        log INFO "Verified: UI certificate is $CERT_ID"
+        _UI_VERIFIED=1
+        break
+      fi
+      log WARN "UI certificate is ${UI_CERT:-unset}, expected $CERT_ID (attempt $v/$UI_RESTART_RETRIES)"
+    }
+  fi
+  log INFO "Waiting for TrueNAS web UI to come back (attempt $v/$UI_RESTART_RETRIES)"
+  sleep "$UI_RESTART_INTERVAL"
+done
+
+if [[ "$_UI_VERIFIED" == "1" ]]; then
+  log INFO "Certificate $CERT_NAME (ID $CERT_ID) bound to TrueNAS UI"
+else
+  log WARN "Certificate $CERT_NAME imported (ID $CERT_ID); UI binding could not be confirmed (UI may still be restarting) — verify in the TrueNAS UI."
+fi

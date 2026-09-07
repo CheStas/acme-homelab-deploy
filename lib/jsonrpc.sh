@@ -176,13 +176,18 @@ jsonrpc_open() {
   log INFO "Authenticated to TrueNAS"
 }
 
-# Call a JSON-RPC method. <method> <params_json>
+# Call a JSON-RPC method. <method> <params_json> [tolerate_no_reply]
 # Params must be a raw JSON value (array for positional params), e.g.
 #   '[{"name":"x"}]'  or  '[[["id","=",1]]]'
 # On success, prints .result (as JSON) to stdout and returns 0.
-# On a JSON-RPC error or connection close/timeout, logs and returns 1.
+# A JSON-RPC .error reply always logs and returns 1.
+# If the read loop ends without a matching reply (connection closed or
+# timeout), this is normally a failure — UNLESS tolerate_no_reply is "1",
+# in which case it returns 0. Use tolerate_no_reply for calls (such as
+# system.general.update changing the UI certificate) that restart the API
+# and drop the WebSocket without replying.
 jsonrpc_call() {
-  local method="$1" params="$2"
+  local method="$1" params="$2" tolerate="${3:-0}"
 
   if [[ -z "${WS[0]:-}" || -z "${WS[1]:-}" ]]; then
     log ERROR "jsonrpc_call '$method' with no open WebSocket"
@@ -216,6 +221,10 @@ jsonrpc_call() {
     return 0
   done
 
+  if [[ "$tolerate" == "1" ]]; then
+    log WARN "No reply to $method (connection dropped — expected if the call restarts the API)"
+    return 0
+  fi
   log ERROR "WebSocket closed or timed out waiting for reply to $method (id=$id)"
   return 1
 }
@@ -223,7 +232,9 @@ jsonrpc_call() {
 # Close the WebSocket. Idempotent.
 jsonrpc_close() {
   if [[ -n "${WS[1]:-}" ]]; then
-    jsonrpc_call "auth.logout" "[]" >/dev/null 2>&1 || true
+    # Short timeout: if the connection is already dead (e.g. after a UI
+    # restart), don't hang here waiting for a logout reply.
+    JSONRPC_READ_TIMEOUT=2 jsonrpc_call "auth.logout" "[]" >/dev/null 2>&1 || true
     eval "exec ${WS[1]}>&-" 2>/dev/null || true
     WS[1]=""
   fi

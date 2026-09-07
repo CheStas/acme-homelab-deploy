@@ -213,3 +213,19 @@ SCRIPT
   assert_failure
   assert_output --partial "WebSocket closed or timed out"
 }
+
+@test "jsonrpc_call tolerates no-reply when tolerate_no_reply=1" {
+  # Simulates system.general.update: the server restarts and drops the socket
+  # without replying. With tolerate_no_reply=1 this is success, not failure.
+  _JSONRPC_ID=0
+  : > "$TEST_TEMP/reply.in"   # empty -> immediate EOF
+  exec {rfd}<"$TEST_TEMP/reply.in"
+  exec {wfd}>/dev/null
+  WS=("$rfd" "$wfd")
+
+  run jsonrpc_call "system.general.update" "[]" 1
+  exec {rfd}<&-
+  exec {wfd}>&-
+  assert_success
+  assert_output --partial "No reply"
+}
