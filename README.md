@@ -7,9 +7,44 @@ Deploys wildcard TLS certificates from [acme.sh](https://github.com/acmesh-offic
 | Deploy | Target | Method |
 |--------|--------|--------|
 | `ha` | Home Assistant | SSH/SCP + `ha core restart` |
-| `truenas` | TrueNAS | REST API (certificate import + UI binding) |
+| `truenas` | TrueNAS | JSON-RPC over WebSocket (certificate import + UI binding) |
 | `npm` | Nginx Proxy Manager | REST API (upload, update proxies, cleanup old certs) |
 | `wikihome` | Wikihome / Node-RED | SSH/SCP + `systemctl restart nodered` |
+
+## TrueNAS deploy: JSON-RPC over WebSocket
+
+The `truenas` deploy previously used the REST API (`/api/v2.0`), which TrueNAS
+deprecated and **removes in 26.04** (it logs *"The deprecated REST API was used
+to authenticate"*). It now uses the supported **JSON-RPC 2.0 over WebSocket** API
+at `wss://<host>/api/current`, authenticating with `auth.login_with_api_key`
+using your existing API key (only the HTTP transport changed — the key still
+works). Plain API-key auth is still accepted by TrueNAS 26.x.
+
+The WebSocket is driven by [`websocat`](https://github.com/vi/websocat) from a
+bash coproc in `lib/jsonrpc.sh`. **No binary is committed to the repo.** On the
+Pi, the script downloads the static musl `websocat` binary from GitHub on first
+run and caches it at `~/.cache/acme-deploy/websocat` (reused afterward).
+
+```bash
+# Update to the latest websocat release:
+WEBSOCAT_FORCE_DOWNLOAD=1 ./deploy-all.sh truenas
+
+# Pin a specific release:
+WEBSOCAT_VERSION=v1.14.1 ./deploy-all.sh truenas
+
+# Or supply your own websocat (e.g. installed system-wide):
+WEBSOCAT=/usr/local/bin/websocat ./deploy-all.sh truenas
+```
+
+Supported architectures: `aarch64` and `x86_64` (static musl builds with TLS).
+The 32-bit `armv7l` musl build has no TLS and cannot do `wss://`.
+
+For development, use the nix dev shell (provides bash 5, websocat, jq, bats,
+shellcheck, GNU coreutils — the Pi itself has no nix):
+
+```bash
+nix develop          # then: bats tests/   |   shellcheck -x lib/jsonrpc.sh
+```
 
 ## Setup
 
@@ -88,8 +123,12 @@ Each `deploy-all.sh` run is separated by `====` lines with STARTED/FINISHED mark
 | `HA_HOST` | Home Assistant hostname |
 | `HA_USER` | Home Assistant SSH user |
 | `HA_CERT_DIR` | Remote cert directory on HA |
-| `TRUENAS_URL` | TrueNAS API base URL |
+| `TRUENAS_URL` | TrueNAS base URL (`https://host` or `https://host:port`; converted to `wss://` for the WebSocket API) |
 | `TRUENAS_CERT_PREFIX` | Prefix for imported certificate names |
+| `WEBSOCAT` | Optional explicit path to a `websocat` binary (skips cache/download) |
+| `WEBSOCAT_VERSION` | websocat release to download/cache: `latest` (default) or a pinned tag like `v1.14.1` |
+| `WEBSOCAT_FORCE_DOWNLOAD` | Set to `1` to re-download websocat even if a cached copy exists |
+| `JSONRPC_READ_TIMEOUT` | Per JSON-RPC reply read timeout in seconds (default `30`) |
 | `NPM_URL` | Nginx Proxy Manager API URL |
 | `NPM_EMAIL` | NPM admin email |
 | `NPM_DOMAINS` | Space-separated list of domains to update |
@@ -163,12 +202,19 @@ scp -r $(find . -maxdepth 1 ! -name '.git' ! -name 'tests' ! -name '.claude' ! -
 
 ## Testing
 
-```bash
-# Run all tests
-./tests/bats/bin/bats tests/
+Tests use [bats-core](https://github.com/bats-core/bats-core) (vendored as a
+submodule) and need bash 4+ with GNU coreutils. On the dev machine use the nix
+shell; on Linux (e.g. the Pi) the system tools suffice.
 
-# Run specific test file
-./tests/bats/bin/bats tests/test_common.bats
+```bash
+git submodule update --init   # first checkout only
+
+# Dev machine (macOS) — provides bash 5, bats, jq, shellcheck, GNU coreutils:
+nix develop --command bash -c 'bats tests/'
+nix develop --command bash -c 'shellcheck -x deploys/*.sh lib/*.sh'
+
+# Linux:
+./tests/bats/bin/bats tests/
 ```
 
 ## Project Structure
@@ -178,9 +224,11 @@ scp -r $(find . -maxdepth 1 ! -name '.git' ! -name 'tests' ! -name '.claude' ! -
 .env.secret           # Secrets (gitignored)
 .env.secret.example   # Secrets template
 deploy-all.sh         # Orchestrator
+flake.nix             # Dev shell (dev machine only; the Pi has no nix)
 lib/
   common.sh           # Shared: logging, env, error handling
   http.sh             # Shared: curl/scp/ssh wrappers
+  jsonrpc.sh          # Shared: JSON-RPC 2.0 over WebSocket client (websocat)
 deploys/
   ha.sh               # Home Assistant
   truenas.sh          # TrueNAS
